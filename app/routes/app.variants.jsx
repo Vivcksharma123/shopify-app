@@ -43,7 +43,8 @@ export const loader = async ({ request }) => {
       id: variant.node.id,
       title: variant.node.title,
       sku: variant.node.sku,
-      price: parseFloat(variant.node.price)
+      price: parseFloat(variant.node.price),
+      originalPrice: parseFloat(variant.node.price) // Store original price
     }))
   );
   
@@ -54,12 +55,21 @@ export const loader = async ({ request }) => {
 export const action = async ({ request }) => {
   console.log("🟢 action started");
 
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   console.log("📦 formData received");
+  console.log("🔍 Session:", session);
+  console.log("🔍 Shop:", session.shop);
+  console.log("🔍 Access token exists:", !!session.accessToken);
 
   const multipliers = JSON.parse(formData.get("multipliers") || "{}");
+  const originalPrices = JSON.parse(formData.get("originalPrices") || "{}");
   console.log("🧮 multipliers:", multipliers);
+  console.log("💰 originalPrices:", originalPrices);
+  
+  let updatedCount = 0;
+  let errorCount = 0;
+  let errorDetails = [];
 
   // Fetch products
   const response = await admin.graphql(`
@@ -91,77 +101,212 @@ export const action = async ({ request }) => {
     return { success: false, error: "No products found" };
   }
 
+  console.log("🔍 Processing products...");
+  
   for (const product of data.data.products.edges) {
+    console.log(`📦 Product: ${product.node.title}`);
+    
     for (const v of product.node.variants.edges) {
       const id = v.node.id;
       const multiplier = multipliers[id];
-      if (!multiplier) continue;
+      
+      console.log(`🔍 Checking variant ${id}:`, {
+        hasMultiplier: !!multiplier,
+        multiplierValue: multiplier,
+        currentPrice: v.node.price
+      });
+      
+      if (!multiplier) {
+        console.log(`⏭️ Skipping variant ${id} - no multiplier`);
+        continue;
+      }
 
-      const newPrice = (parseFloat(v.node.price) * parseFloat(multiplier)).toFixed(2);
-      console.log(`🧾 Updating variant ${id} → ${newPrice}`);
+      const originalPrice = originalPrices[id] ? parseFloat(originalPrices[id]) : parseFloat(v.node.price);
+      const multiplierValue = parseFloat(multiplier);
+      const newPrice = (originalPrice * multiplierValue).toFixed(2);
+      
+      console.log(`🧾 Updating variant ${id}: ${originalPrice} × ${multiplierValue} = ${newPrice}`);
 
       try {
+        // Try the correct mutation for API version 2026-01
         const updateResponse = await admin.graphql(`
-          mutation UpdateVariantPrice($id: ID!, $price: Decimal!) {
-            productVariantUpdate(input: { id: $id, price: $price }) {
-              productVariant { id price }
-              userErrors { field message }
+          mutation productVariantUpdate($input: ProductVariantInput!) {
+            productVariantUpdate(input: $input) {
+              productVariant {
+                id
+                price
+              }
+              userErrors {
+                field
+                message
+              }
             }
           }
         `, {
-          variables: { id, price: newPrice },
+          variables: {
+            input: {
+              id: id,
+              price: newPrice
+            }
+          }
         });
 
         const result = await updateResponse.json();
-        console.log("💬 Shopify response:", JSON.stringify(result, null, 2));
+        console.log("💬 Shopify response:", result);
 
-        if (result.data.productVariantUpdate.userErrors.length > 0) {
-          console.error("❌ Variant update failed:", result.data.productVariantUpdate.userErrors);
-        } else {
+        if (result.data?.productVariantUpdate?.productVariant) {
           console.log(`✅ Updated variant ${id} to $${newPrice}`);
+          updatedCount++;
+        } else if (result.data?.productVariantUpdate?.userErrors?.length > 0) {
+          console.error("❌ Update failed:", result.data.productVariantUpdate.userErrors);
+          errorDetails.push({ variantId: id, errors: result.data.productVariantUpdate.userErrors });
+          errorCount++;
+        } else {
+          console.error("❌ Unexpected response:", result);
+          errorDetails.push({ variantId: id, error: "Unexpected response", response: result });
+          errorCount++;
         }
       } catch (err) {
-        console.error("🔥 Mutation error:", err);
+        console.error("🔥 API error:", err);
+        
+        // If the mutation doesn't exist, try REST API as fallback
+        if (err.message.includes("doesn't exist on type 'Mutation'")) {
+          console.log("🔄 Trying REST API fallback...");
+          try {
+            const numericId = id.split('/').pop();
+            const restResponse = await fetch(`https://${session.shop}/admin/api/2025-10/variants/${numericId}.json`, {
+              method: 'PUT',
+              headers: {
+                'X-Shopify-Access-Token': session.accessToken,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                variant: {
+                  id: parseInt(numericId),
+                  price: newPrice
+                }
+              })
+            });
+            
+            if (restResponse.ok) {
+              console.log(`✅ Updated via REST: ${id} to $${newPrice}`);
+              updatedCount++;
+            } else {
+              const restError = await restResponse.text();
+              console.error("❌ REST API failed:", restError);
+              errorDetails.push({ variantId: id, error: `REST API failed: ${restError}` });
+              errorCount++;
+            }
+          } catch (restErr) {
+            console.error("🔥 REST fallback failed:", restErr);
+            errorDetails.push({ variantId: id, error: restErr.message });
+            errorCount++;
+          }
+        } else {
+          errorDetails.push({ variantId: id, error: err.message });
+          errorCount++;
+        }
       }
     }
   }
 
   console.log("🏁 action completed");
-  return { success: true };
+  console.log(`📊 Summary: ${updatedCount} updated, ${errorCount} errors`);
+  
+  return { 
+    success: errorCount === 0, 
+    updatedCount, 
+    errorCount,
+    errorDetails,
+    message: `Updated ${updatedCount} variants${errorCount > 0 ? ` (${errorCount} errors)` : ''}`
+  };
 };
 
 export default function VariantsPage() {
   const { variants } = useLoaderData();
   const fetcher = useFetcher();
   const [multiplier, setMultiplier] = useState({});
+  const [globalMultiplier, setGlobalMultiplier] = useState('');
   const [updatedPrices, setUpdatedPrices] = useState({});
+  const [originalPrices, setOriginalPrices] = useState({});
   
   console.log("🔍 Component variants:", variants);
   console.log("📏 Variants length:", variants?.length);
 
   useEffect(() => {
+    // Load saved original prices or use current prices
+    const savedOriginals = localStorage.getItem('originalPrices');
+    if (savedOriginals) {
+      setOriginalPrices(JSON.parse(savedOriginals));
+    } else {
+      // First time - store current prices as original
+      const originals = {};
+      variants.forEach(variant => {
+        originals[variant.id] = variant.originalPrice;
+      });
+      setOriginalPrices(originals);
+      localStorage.setItem('originalPrices', JSON.stringify(originals));
+    }
+    
     // Load saved updated prices from localStorage
     const saved = localStorage.getItem('updatedPrices');
     if (saved) {
       setUpdatedPrices(JSON.parse(saved));
     }
-  }, []);
+  }, [variants]);
 
   const handleChange = (id, value) => {
     console.log('🔄 Multiplier changed:', { id, value });
     setMultiplier({ ...multiplier, [id]: value });
   };
 
+  const applyGlobalMultiplier = () => {
+    if (!globalMultiplier || globalMultiplier === '') return;
+    
+    const newMultipliers = {};
+    variants.forEach(variant => {
+      newMultipliers[variant.id] = globalMultiplier;
+    });
+    setMultiplier(newMultipliers);
+    console.log('🌍 Applied global multiplier:', globalMultiplier);
+  };
+
+  const syncLatestPrices = () => {
+    console.log('🔄 Syncing latest prices from Shopify...');
+    
+    // Update original prices with current variant prices
+    const newOriginalPrices = {};
+    variants.forEach(variant => {
+      newOriginalPrices[variant.id] = variant.price; // Use current price as new original
+    });
+    
+    setOriginalPrices(newOriginalPrices);
+    localStorage.setItem('originalPrices', JSON.stringify(newOriginalPrices));
+    
+    console.log('✅ Original prices synced:', newOriginalPrices);
+    
+    // Optionally clear updated prices since we have new baseline
+    setUpdatedPrices({});
+    localStorage.removeItem('updatedPrices');
+    
+    console.log('🧹 Cleared previous updated prices');
+  };
+
   const handleUpdate = () => {
+    debugger;
     console.log('🚀 Update button clicked');
     console.log('📊 Current multipliers:', multiplier);
+    console.log('📊 Multiplier keys:', Object.keys(multiplier));
+    console.log('📊 Variant IDs:', variants.map(v => v.id));
     
-    // Calculate and store new prices
+    // Calculate new prices based on ORIGINAL prices
     const newPrices = {};
     variants.forEach(variant => {
       if (multiplier[variant.id] && multiplier[variant.id] !== '') {
-        newPrices[variant.id] = (variant.price * parseFloat(multiplier[variant.id])).toFixed(2);
-        console.log(`💰 Calculated price for ${variant.title}: $${newPrices[variant.id]}`);
+        // Always calculate from original price, not current price
+        const originalPrice = originalPrices[variant.id] || variant.originalPrice;
+        newPrices[variant.id] = (originalPrice * parseFloat(multiplier[variant.id])).toFixed(2);
+        console.log(`💰 Calculated price for ${variant.title}: $${originalPrice} × ${multiplier[variant.id]} = $${newPrices[variant.id]}`);
       }
     });
     
@@ -175,16 +320,58 @@ export default function VariantsPage() {
     
     const formData = new FormData();
     formData.append("multipliers", JSON.stringify(multiplier));
+    formData.append("originalPrices", JSON.stringify(originalPrices));
     fetcher.submit(formData, { method: "POST" });
     console.log('📤 Form submitted to server');
     
     // Clear multipliers after update
     setMultiplier({});
+    setGlobalMultiplier('');
     console.log('🧹 Multipliers cleared');
   };
+  
+  // Show success message
+  useEffect(() => {
+    if (fetcher.data?.success) {
+      console.log('✅ Update successful:', fetcher.data.message);
+      // Refresh page to show updated prices
+      window.location.reload();
+    } else if (fetcher.data?.success === false) {
+      console.error('❌ Update failed:', fetcher.data.message);
+      if (fetcher.data.errorDetails) {
+        console.error('🔍 Error details:', fetcher.data.errorDetails);
+        fetcher.data.errorDetails.forEach((error, index) => {
+          console.error(`Error ${index + 1}:`, error);
+        });
+      }
+    }
+  }, [fetcher.data]);
 
   return (
     <s-page heading="Variant Multiplier">
+      <s-section heading="Global Controls">
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <label style={{ fontWeight: 'bold' }}>Apply to All:</label>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="e.g., 1.2 for 20% increase"
+              value={globalMultiplier}
+              onChange={(e) => setGlobalMultiplier(e.target.value)}
+              style={{ width: '200px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+            <s-button onClick={applyGlobalMultiplier} disabled={!globalMultiplier}>
+              Apply to All
+            </s-button>
+          </div>
+          <div style={{ marginLeft: 'auto' }}>
+            <s-button variant="secondary" onClick={syncLatestPrices}>
+              🔄 Sync Latest Prices
+            </s-button>
+          </div>
+        </div>
+      </s-section>
       <s-section heading="Variant Table">
         {!variants || variants.length === 0 ? (
           <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
@@ -193,38 +380,45 @@ export default function VariantsPage() {
         ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid #ddd' }}>
+            <tr style={{ borderBottom: '2px solid #ddd' }}>
               <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Variant</th>
               <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>SKU</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Price</th>
+              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Original Price</th>
               <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Multiplier</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Updated Price</th>
+              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>New Price</th>
             </tr>
           </thead>
           <tbody>
-            {variants.map((variant) => (
-              <tr key={variant.id} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '12px' }}>{variant.title}</td>
-                <td style={{ padding: '12px' }}>{variant.sku || "—"}</td>
-                <td style={{ padding: '12px' }}>${variant.price.toFixed(2)}</td>
-                <td style={{ padding: '12px' }}>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={multiplier[variant.id] || ""}
-                    onChange={(event) => handleChange(variant.id, event.target.value)}
-                    style={{ width: '100px', padding: '4px', border: '1px solid #ccc', borderRadius: '4px' }}
-                  />
-                </td>
-                <td style={{ padding: '12px' }}>
-                  {multiplier[variant.id] && multiplier[variant.id] !== ''
-                    ? `$${(variant.price * parseFloat(multiplier[variant.id])).toFixed(2)}`
-                    : updatedPrices[variant.id]
-                    ? `$${parseFloat(updatedPrices[variant.id]).toFixed(2)}`
-                    : `$${variant.price.toFixed(2)}`}
-                </td>
-              </tr>
-            ))}
+            {variants.map((variant) => {
+              const hasMultiplier = multiplier[variant.id] && multiplier[variant.id] !== '';
+              const originalPrice = originalPrices[variant.id] || variant.originalPrice;
+              const newPrice = hasMultiplier ? (originalPrice * parseFloat(multiplier[variant.id])).toFixed(2) : null;
+              
+              return (
+                <tr key={variant.id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px' }}>{variant.title}</td>
+                  <td style={{ padding: '12px' }}>{variant.sku || "—"}</td>
+                  <td style={{ padding: '12px', color: '#666' }}>${originalPrice.toFixed(2)}</td>
+                  <td style={{ padding: '12px' }}>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="1.0"
+                      value={multiplier[variant.id] || ""}
+                      onChange={(event) => handleChange(variant.id, event.target.value)}
+                      style={{ width: '100px', padding: '6px', border: '1px solid #ccc', borderRadius: '4px' }}
+                    />
+                  </td>
+                  <td style={{ 
+                    padding: '12px', 
+                    fontWeight: hasMultiplier ? 'bold' : 'normal',
+                    color: hasMultiplier ? '#28a745' : '#666'
+                  }}>
+                    {hasMultiplier ? `$${newPrice}` : updatedPrices[variant.id] ? `$${parseFloat(updatedPrices[variant.id]).toFixed(2)}` : `$${originalPrice.toFixed(2)}`}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         )}
@@ -235,8 +429,13 @@ export default function VariantsPage() {
             onClick={handleUpdate}
             loading={fetcher.state === "submitting"}
           >
-            Update Price
+            {fetcher.state === "submitting" ? "Updating..." : "Update Price"}
           </s-button>
+          {fetcher.data?.message && (
+            <div style={{ marginTop: '8px', padding: '8px', backgroundColor: fetcher.data.success ? '#d4edda' : '#f8d7da', borderRadius: '4px' }}>
+              {fetcher.data.message}
+            </div>
+          )}
         </div>
         )}
       </s-section>
