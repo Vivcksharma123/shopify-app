@@ -349,6 +349,8 @@ export default function VariantsPage() {
   const [updatedPrices, setUpdatedPrices] = useState({});
   const [originalPrices, setOriginalPrices] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   console.log("🔍 Component variants:", variants);
   console.log("📏 Variants length:", variants?.length);
@@ -399,6 +401,15 @@ export default function VariantsPage() {
   const filteredVariants = variants.filter(variant => 
     variant.productTitle.toLowerCase().includes(searchTerm.toLowerCase())
   );
+  
+  // Pagination logic
+  const totalPages = Math.ceil(filteredVariants.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedVariants = filteredVariants.slice(startIndex, startIndex + itemsPerPage);
+  
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
 
   const handleUpdate = () => {
     debugger;
@@ -455,72 +466,216 @@ export default function VariantsPage() {
   }, [fetcher.data]);
 
   return (
-    <s-page heading="Variant Multiplier">
-      <s-section heading="Search & Controls">
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <label style={{ fontWeight: 'bold' }}>Search:</label>
+    <s-page heading="Variant Price Multiplier" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh' }}>
+      <s-section heading="Search & Controls" style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label style={{ fontWeight: '500', color: '#000', fontSize: '14px' }}>Search:</label>
             <input
               type="text"
               placeholder="Search by product name..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ width: '200px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              style={{ width: '220px', padding: '12px 16px', border: 'none', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)', fontSize: '14px', background: 'rgba(255,255,255,0.9)' }}
             />
+          </div>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label style={{ fontWeight: '500', color: '#000', fontSize: '14px' }}>Show:</label>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+              style={{ padding: '12px 16px', border: 'none', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)', fontSize: '14px', background: 'rgba(255,255,255,0.9)' }}
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+            <span style={{ color: '#fff', fontWeight: '500' }}>per page</span>
+          </div>
+          <div style={{ marginLeft: 'auto', color: '#fff', fontWeight: '500', background: 'rgba(255,255,255,0.2)', padding: '8px 16px', borderRadius: '20px' }}>
+            Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredVariants.length)} of {filteredVariants.length} variants
           </div>
         </div>
       </s-section>
-      <s-section heading="Variant Table">
+      <s-section heading="Variant Table" style={{ textAlign: 'center', fontWeight: 'bold', background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', borderRadius: '12px', padding: '20px', boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
         {!variants || variants.length === 0 ? (
           <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
             No variants found. Check console for debug info.
           </div>
         ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #ddd' }}>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Product</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Variant</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>SKU</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Original Price</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Multiplier</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>New Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredVariants.map((variant) => {
+        <div style={{ backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.2)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderBottom: '2px solid #dee2e6' }}>
+                <th style={{ padding: '18px', textAlign: 'left', fontWeight: '700', color: '#fff', fontSize: '14px' }}>Product</th>
+                <th style={{ padding: '18px', textAlign: 'left', fontWeight: '700', color: '#fff', fontSize: '14px' }}>Variant</th>
+                <th style={{ padding: '18px', textAlign: 'left', fontWeight: '700', color: '#fff', fontSize: '14px' }}>SKU</th>
+                <th style={{ padding: '18px', textAlign: 'left', fontWeight: '700', color: '#fff', fontSize: '14px' }}>Original Price</th>
+                <th style={{ padding: '18px', textAlign: 'left', fontWeight: '700', color: '#fff', fontSize: '14px' }}>Multiplier</th>
+                <th style={{ padding: '18px', textAlign: 'left', fontWeight: '700', color: '#fff', fontSize: '14px' }}>New Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedVariants.map((variant, index) => {
               const hasMultiplier = multiplier[variant.id] && multiplier[variant.id] !== '';
               const originalPrice = originalPrices[variant.id] || variant.originalPrice;
               const newPrice = hasMultiplier ? (originalPrice * parseFloat(multiplier[variant.id])).toFixed(2) : null;
               
-              return (
-                <tr key={variant.id} style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '12px', fontWeight: 'bold' }}>{variant.productTitle}</td>
-                  <td style={{ padding: '12px' }}>{variant.title}</td>
-                  <td style={{ padding: '12px' }}>{variant.sku || "—"}</td>
-                  <td style={{ padding: '12px', color: '#666' }}>${originalPrice.toFixed(2)}</td>
-                  <td style={{ padding: '12px' }}>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="1.0"
-                      value={multiplier[variant.id] || ""}
-                      onChange={(event) => handleChange(variant.id, event.target.value)}
-                      style={{ width: '100px', padding: '6px', border: '1px solid #ccc', borderRadius: '4px' }}
-                    />
-                  </td>
-                  <td style={{ 
-                    padding: '12px', 
-                    fontWeight: hasMultiplier ? 'bold' : 'normal',
-                    color: hasMultiplier ? '#28a745' : '#666'
-                  }}>
-                    {hasMultiplier ? `$${newPrice}` : currentPricesFromDB[variant.id] ? `$${parseFloat(currentPricesFromDB[variant.id]).toFixed(2)}` : `$${variant.price.toFixed(2)}`}
-                  </td>
-                </tr>
-              );
+                return (
+                  <tr key={variant.id} style={{ 
+                    borderBottom: '1px solid #e9ecef', 
+                    backgroundColor: index % 2 === 0 ? '#fff' : '#f8f9fa',
+                    transition: 'background-color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.target.parentElement.style.backgroundColor = '#e3f2fd'}
+                  onMouseLeave={(e) => e.target.parentElement.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa'}
+                  >
+                    <td style={{ padding: '16px', fontWeight: '600', color: '#212529' }}>{variant.productTitle}</td>
+                    <td style={{ padding: '16px', color: '#495057' }}>{variant.title}</td>
+                    <td style={{ padding: '16px', color: '#6c757d', fontFamily: 'monospace' }}>{variant.sku || "—"}</td>
+                    <td style={{ padding: '16px', color: '#495057', fontWeight: '500' }}>${originalPrice.toFixed(2)}</td>
+                    <td style={{ padding: '16px' }}>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="Enter Value"
+                        value={multiplier[variant.id] || ""}
+                        onChange={(event) => handleChange(variant.id, event.target.value)}
+                        style={{ 
+                          width: '100px', 
+                          padding: '8px 12px', 
+                          border: '2px solid #dee2e6',
+                          borderRadius: '10px', 
+                          fontSize: '14px',
+                          transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+                          outline: 'none'
+                        }}
+                        onFocus={(e) => {
+                          e.target.style.borderColor = '#007bff';
+                          e.target.style.boxShadow = '0 0 0 3px rgba(0,123,255,0.1)';
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#dee2e6';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </td>
+                    <td style={{ 
+                      padding: '16px', 
+                      fontWeight: hasMultiplier ? '600' : '500',
+                      color: hasMultiplier ? '#28a745' : '#495057',
+                      fontSize: hasMultiplier ? '16px' : '14px'
+                    }}>
+                      {hasMultiplier ? `$${newPrice}` : currentPricesFromDB[variant.id] ? `$${parseFloat(currentPricesFromDB[variant.id]).toFixed(2)}` : `$${variant.price.toFixed(2)}`}
+                    </td>
+                  </tr>
+                );
             })}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
+        )}
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+              <label style={{ fontWeight: 'bold', color: '#fff', fontSize: '16px' }}>Pagination:</label>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #dee2e6',
+                borderRadius: '6px',
+                backgroundColor: currentPage === 1 ? '#f8f9fa' : '#fff',
+                color: currentPage === 1 ? '#6c757d' : '#495057',
+                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (currentPage !== 1) {
+                  e.target.style.backgroundColor = '#e9ecef';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (currentPage !== 1) {
+                  e.target.style.backgroundColor = '#fff';
+                }
+              }}
+            >
+              Previous
+            </button>
+            
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              let startPage = Math.max(1, currentPage - 2);
+              let endPage = Math.min(totalPages, startPage + 4);
+              if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4);
+              }
+              const pageNum = startPage + i;
+              
+              if (pageNum > totalPages) return null;
+              
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => goToPage(pageNum)}
+                  style={{
+                    padding: '8px 12px',
+                    border: '1px solid #dee2e6',
+                    borderRadius: '6px',
+                    backgroundColor: currentPage === pageNum ? '#007bff' : '#fff',
+                    color: currentPage === pageNum ? '#fff' : '#495057',
+                    cursor: 'pointer',
+                    fontWeight: currentPage === pageNum ? '600' : '400',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (currentPage !== pageNum) {
+                      e.target.style.backgroundColor = '#e9ecef';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (currentPage !== pageNum) {
+                      e.target.style.backgroundColor = '#fff';
+                    }
+                  }}
+                >
+                  {pageNum}
+                </button>
+              );
+            }).filter(Boolean)}
+            
+            <button
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #dee2e6',
+                borderRadius: '6px',
+                backgroundColor: currentPage === totalPages ? '#f8f9fa' : '#fff',
+                color: currentPage === totalPages ? '#6c757d' : '#495057',
+                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (currentPage !== totalPages) {
+                  e.target.style.backgroundColor = '#e9ecef';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (currentPage !== totalPages) {
+                  e.target.style.backgroundColor = '#fff';
+                }
+              }}
+            >
+              Next
+            </button>
+            </div>
+          </div>
         )}
         {filteredVariants && filteredVariants.length > 0 && (
         <div style={{ marginTop: '16px' }}>
@@ -538,6 +693,7 @@ export default function VariantsPage() {
           )}
         </div>
         )}
+        
       </s-section>
     </s-page>
   );
