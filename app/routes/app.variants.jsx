@@ -44,7 +44,8 @@ export const loader = async ({ request }) => {
       title: variant.node.title,
       sku: variant.node.sku,
       price: parseFloat(variant.node.price),
-      originalPrice: parseFloat(variant.node.price) // Store original price
+      originalPrice: parseFloat(variant.node.price),
+      productTitle: product.node.title
     }))
   );
   
@@ -229,6 +230,7 @@ export default function VariantsPage() {
   const [globalMultiplier, setGlobalMultiplier] = useState('');
   const [updatedPrices, setUpdatedPrices] = useState({});
   const [originalPrices, setOriginalPrices] = useState({});
+  const [searchTerm, setSearchTerm] = useState('');
   
   console.log("🔍 Component variants:", variants);
   console.log("📏 Variants length:", variants?.length);
@@ -292,6 +294,10 @@ export default function VariantsPage() {
     console.log('🧹 Cleared previous updated prices');
   };
 
+  const filteredVariants = variants.filter(variant => 
+    variant.productTitle.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const handleUpdate = () => {
     debugger;
     console.log('🚀 Update button clicked');
@@ -349,21 +355,17 @@ export default function VariantsPage() {
 
   return (
     <s-page heading="Variant Multiplier">
-      <s-section heading="Global Controls">
+      <s-section heading="Search & Controls">
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <label style={{ fontWeight: 'bold' }}>Apply to All:</label>
+            <label style={{ fontWeight: 'bold' }}>Search:</label>
             <input
-              type="number"
-              step="0.1"
-              placeholder="e.g., 1.2 for 20% increase"
-              value={globalMultiplier}
-              onChange={(e) => setGlobalMultiplier(e.target.value)}
+              type="text"
+              placeholder="Search by product name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '200px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
             />
-            <s-button onClick={applyGlobalMultiplier} disabled={!globalMultiplier}>
-              Apply to All
-            </s-button>
           </div>
           <div style={{ marginLeft: 'auto' }}>
             <s-button variant="secondary" onClick={syncLatestPrices}>
@@ -381,6 +383,7 @@ export default function VariantsPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #ddd' }}>
+              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Product</th>
               <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Variant</th>
               <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>SKU</th>
               <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>Original Price</th>
@@ -389,13 +392,14 @@ export default function VariantsPage() {
             </tr>
           </thead>
           <tbody>
-            {variants.map((variant) => {
+            {filteredVariants.map((variant) => {
               const hasMultiplier = multiplier[variant.id] && multiplier[variant.id] !== '';
               const originalPrice = originalPrices[variant.id] || variant.originalPrice;
               const newPrice = hasMultiplier ? (originalPrice * parseFloat(multiplier[variant.id])).toFixed(2) : null;
               
               return (
                 <tr key={variant.id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px', fontWeight: 'bold' }}>{variant.productTitle}</td>
                   <td style={{ padding: '12px' }}>{variant.title}</td>
                   <td style={{ padding: '12px' }}>{variant.sku || "—"}</td>
                   <td style={{ padding: '12px', color: '#666' }}>${originalPrice.toFixed(2)}</td>
@@ -422,7 +426,7 @@ export default function VariantsPage() {
           </tbody>
         </table>
         )}
-        {variants && variants.length > 0 && (
+        {filteredVariants && filteredVariants.length > 0 && (
         <div style={{ marginTop: '16px' }}>
           <s-button 
             variant="primary" 
