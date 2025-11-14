@@ -59,6 +59,25 @@ export const loader = async ({ request }) => {
   try {
     const variantPricesFromDB = await prisma.variantPrice.findMany();
     console.log("💾 Database records found:", variantPricesFromDB.length);
+    
+    // Auto-sync currentPrice if different from Shopify price
+    for (const variant of variants) {
+      const dbRecord = variantPricesFromDB.find(vp => vp.variantId === variant.id);
+      const shopifyPrice = parseFloat(variant.price);
+      
+      if (dbRecord && Math.abs(dbRecord.currentPrice - shopifyPrice) > 0.001) {
+        console.log(`🔄 Auto-syncing ${variant.id}: DB=${dbRecord.currentPrice} -> Shopify=${shopifyPrice}`);
+        
+        await prisma.variantPrice.update({
+          where: { variantId: variant.id },
+          data: { currentPrice: shopifyPrice }
+        });
+        
+        dbRecord.currentPrice = shopifyPrice;
+        console.log(`✅ Auto-synced currentPrice for ${variant.id}`);
+      }
+    }
+    
     variantPricesFromDB.forEach(vp => {
       originalPricesMap[vp.variantId] = vp.originalPrice;
       currentPricesMap[vp.variantId] = vp.currentPrice;
@@ -66,7 +85,7 @@ export const loader = async ({ request }) => {
     console.log("💾 Original prices map:", originalPricesMap);
     console.log("💾 Current prices map:", currentPricesMap);
   } catch (error) {
-    console.error("❌ Database fetch failed:", error);
+    console.error("❌ Database operations failed:", error);
     console.log("⚠️ Using empty price maps as fallback");
   }
   
@@ -227,6 +246,21 @@ export const action = async ({ request }) => {
         if (result.data?.productVariantUpdate?.productVariant) {
           console.log(`✅ Updated variant ${id} to $${newPrice}`);
           updatedCount++;
+          
+          // Auto-update database currentPrice only (keep originalPrice unchanged)
+          try {
+            const originalPrices = JSON.parse(formData.get("originalPrices") || "{}");
+            const originalPrice = originalPrices[id] || parseFloat(newPrice);
+            
+            await prisma.variantPrice.upsert({
+              where: { variantId: id },
+              update: { currentPrice: parseFloat(newPrice) },
+              create: { variantId: id, originalPrice: parseFloat(originalPrice), currentPrice: parseFloat(newPrice) }
+            });
+            console.log(`💾 Database currentPrice synced for ${id}`);
+          } catch (dbErr) {
+            console.error(`❌ Database currentPrice sync failed for ${id}:`, dbErr);
+          }
         } else if (result.data?.productVariantUpdate?.userErrors?.length > 0) {
           console.error("❌ Update failed:", result.data.productVariantUpdate.userErrors);
           errorDetails.push({ variantId: id, errors: result.data.productVariantUpdate.userErrors });
@@ -261,6 +295,21 @@ export const action = async ({ request }) => {
             if (restResponse.ok) {
               console.log(`✅ Updated via REST: ${id} to $${newPrice}`);
               updatedCount++;
+              
+              // Auto-update database currentPrice only (keep originalPrice unchanged)
+              try {
+                const originalPrices = JSON.parse(formData.get("originalPrices") || "{}");
+                const originalPrice = originalPrices[id] || parseFloat(newPrice);
+                
+                await prisma.variantPrice.upsert({
+                  where: { variantId: id },
+                  update: { currentPrice: parseFloat(newPrice) },
+                  create: { variantId: id, originalPrice: parseFloat(originalPrice), currentPrice: parseFloat(newPrice) }
+                });
+                console.log(`💾 Database currentPrice synced via REST for ${id}`);
+              } catch (dbErr) {
+                console.error(`❌ Database currentPrice sync failed for ${id}:`, dbErr);
+              }
             } else {
               const restError = await restResponse.text();
               console.error("❌ REST API failed:", restError);
@@ -419,11 +468,6 @@ export default function VariantsPage() {
               style={{ width: '200px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
             />
           </div>
-          <div style={{ marginLeft: 'auto' }}>
-            <s-button variant="secondary" onClick={syncLatestPrices}>
-              🔄 Sync Latest Prices
-            </s-button>
-          </div>
         </div>
       </s-section>
       <s-section heading="Variant Table">
@@ -470,7 +514,7 @@ export default function VariantsPage() {
                     fontWeight: hasMultiplier ? 'bold' : 'normal',
                     color: hasMultiplier ? '#28a745' : '#666'
                   }}>
-                    {hasMultiplier ? `$${newPrice}` : updatedPrices[variant.id] ? `$${parseFloat(updatedPrices[variant.id]).toFixed(2)}` : `$${originalPrice.toFixed(2)}`}
+                    {hasMultiplier ? `$${newPrice}` : currentPricesFromDB[variant.id] ? `$${parseFloat(currentPricesFromDB[variant.id]).toFixed(2)}` : `$${variant.price.toFixed(2)}`}
                   </td>
                 </tr>
               );
