@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLoaderData, useFetcher } from "react-router";
 import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -50,7 +51,26 @@ export const loader = async ({ request }) => {
   );
   
   console.log("✅ Processed variants:", variants);
-  return { variants };
+  
+  // Fetch variant prices from database with error handling
+  let originalPricesMap = {};
+  let currentPricesMap = {};
+  
+  try {
+    const variantPricesFromDB = await prisma.variantPrice.findMany();
+    console.log("💾 Database records found:", variantPricesFromDB.length);
+    variantPricesFromDB.forEach(vp => {
+      originalPricesMap[vp.variantId] = vp.originalPrice;
+      currentPricesMap[vp.variantId] = vp.currentPrice;
+    });
+    console.log("💾 Original prices map:", originalPricesMap);
+    console.log("💾 Current prices map:", currentPricesMap);
+  } catch (error) {
+    console.error("❌ Database fetch failed:", error);
+    console.log("⚠️ Using empty price maps as fallback");
+  }
+  
+  return { variants, originalPricesFromDB: originalPricesMap, currentPricesFromDB: currentPricesMap };
 };
 
 export const action = async ({ request }) => {
@@ -62,6 +82,55 @@ export const action = async ({ request }) => {
   console.log("🔍 Session:", session);
   console.log("🔍 Shop:", session.shop);
   console.log("🔍 Access token exists:", !!session.accessToken);
+
+  const actionType = formData.get("actionType");
+  
+  if (actionType === "syncPrices") {
+    // Handle sync prices to database
+    const currentPrices = JSON.parse(formData.get("currentPrices") || "{}");
+    console.log("💾 Syncing prices to database:", currentPrices);
+    
+    try {
+      for (const [variantId, price] of Object.entries(currentPrices)) {
+        await prisma.variantPrice.upsert({
+          where: { variantId },
+          update: { originalPrice: parseFloat(price), currentPrice: parseFloat(price) },
+          create: { variantId, originalPrice: parseFloat(price), currentPrice: parseFloat(price) }
+        });
+      }
+      return { success: true, message: "Original prices synced to database" };
+    } catch (error) {
+      console.error("❌ Database sync failed:", error);
+      return { success: false, message: "Failed to sync prices to database" };
+    }
+  }
+  
+  if (actionType === "updatePrices") {
+    // Handle price updates and save to database
+    const newPrices = JSON.parse(formData.get("newPrices") || "{}");
+    console.log("💾 Saving calculated prices to database:", newPrices);
+    
+    try {
+      // Save new calculated prices to database (only update currentPrice, keep originalPrice unchanged)
+      for (const [variantId, price] of Object.entries(newPrices)) {
+        console.log(`💾 Updating current price for variant ${variantId} to ${price}`);
+        
+        // Get original price from the originalPrices data sent from frontend
+        const originalPrices = JSON.parse(formData.get("originalPrices") || "{}");
+        const originalPrice = originalPrices[variantId];
+        
+        const result = await prisma.variantPrice.upsert({
+          where: { variantId },
+          update: { currentPrice: parseFloat(price) },
+          create: { variantId, originalPrice: parseFloat(originalPrice), currentPrice: parseFloat(price) }
+        });
+        console.log(`✅ Update result:`, result);
+      }
+      console.log("✅ All current prices updated in database successfully");
+    } catch (dbError) {
+      console.error("❌ Database save failed:", dbError);
+    }
+  }
 
   const multipliers = JSON.parse(formData.get("multipliers") || "{}");
   const originalPrices = JSON.parse(formData.get("originalPrices") || "{}");
@@ -224,7 +293,7 @@ export const action = async ({ request }) => {
 };
 
 export default function VariantsPage() {
-  const { variants } = useLoaderData();
+  const { variants, originalPricesFromDB, currentPricesFromDB } = useLoaderData();
   const fetcher = useFetcher();
   const [multiplier, setMultiplier] = useState({});
   const [globalMultiplier, setGlobalMultiplier] = useState('');
@@ -236,26 +305,14 @@ export default function VariantsPage() {
   console.log("📏 Variants length:", variants?.length);
 
   useEffect(() => {
-    // Load saved original prices or use current prices
-    const savedOriginals = localStorage.getItem('originalPrices');
-    if (savedOriginals) {
-      setOriginalPrices(JSON.parse(savedOriginals));
-    } else {
-      // First time - store current prices as original
-      const originals = {};
-      variants.forEach(variant => {
-        originals[variant.id] = variant.originalPrice;
-      });
-      setOriginalPrices(originals);
-      localStorage.setItem('originalPrices', JSON.stringify(originals));
-    }
-    
-    // Load saved updated prices from localStorage
-    const saved = localStorage.getItem('updatedPrices');
-    if (saved) {
-      setUpdatedPrices(JSON.parse(saved));
-    }
-  }, [variants]);
+    // Use original prices from database or fallback to current prices
+    const originals = {};
+    variants.forEach(variant => {
+      originals[variant.id] = originalPricesFromDB[variant.id] || variant.originalPrice;
+    });
+    setOriginalPrices(originals);
+    setUpdatedPrices(currentPricesFromDB);
+  }, [variants, originalPricesFromDB, currentPricesFromDB]);
 
   const handleChange = (id, value) => {
     console.log('🔄 Multiplier changed:', { id, value });
@@ -274,24 +331,20 @@ export default function VariantsPage() {
   };
 
   const syncLatestPrices = () => {
-    console.log('🔄 Syncing latest prices from Shopify...');
+    console.log('🔄 Syncing latest prices to database...');
     
-    // Update original prices with current variant prices
-    const newOriginalPrices = {};
+    // Prepare current prices for database sync
+    const currentPrices = {};
     variants.forEach(variant => {
-      newOriginalPrices[variant.id] = variant.price; // Use current price as new original
+      currentPrices[variant.id] = variant.price;
     });
     
-    setOriginalPrices(newOriginalPrices);
-    localStorage.setItem('originalPrices', JSON.stringify(newOriginalPrices));
+    const formData = new FormData();
+    formData.append("actionType", "syncPrices");
+    formData.append("currentPrices", JSON.stringify(currentPrices));
+    fetcher.submit(formData, { method: "POST" });
     
-    console.log('✅ Original prices synced:', newOriginalPrices);
-    
-    // Optionally clear updated prices since we have new baseline
-    setUpdatedPrices({});
-    localStorage.removeItem('updatedPrices');
-    
-    console.log('🧹 Cleared previous updated prices');
+    console.log('📤 Sync request submitted to database');
   };
 
   const filteredVariants = variants.filter(variant => 
@@ -320,15 +373,14 @@ export default function VariantsPage() {
     setUpdatedPrices(updatedPricesData);
     console.log('💾 Updated prices data:', updatedPricesData);
     
-    // Save to localStorage
-    localStorage.setItem('updatedPrices', JSON.stringify(updatedPricesData));
-    console.log('🗄️ Saved to localStorage');
-    
+    // Submit all data in one request
     const formData = new FormData();
+    formData.append("actionType", "updatePrices");
     formData.append("multipliers", JSON.stringify(multiplier));
     formData.append("originalPrices", JSON.stringify(originalPrices));
+    formData.append("newPrices", JSON.stringify(newPrices));
     fetcher.submit(formData, { method: "POST" });
-    console.log('📤 Form submitted to server');
+    console.log('📤 Update request submitted to server');
     
     // Clear multipliers after update
     setMultiplier({});
