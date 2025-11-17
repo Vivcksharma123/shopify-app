@@ -366,6 +366,8 @@ export default function VariantsPage() {
   }, [variants, originalPricesFromDB, currentPricesFromDB]);
 
   const handleChange = (id, value) => {
+    // Prevent negative values
+    if (value < 0) return;
     console.log('🔄 Multiplier changed:', { id, value });
     setMultiplier({ ...multiplier, [id]: value });
   };
@@ -504,7 +506,7 @@ export default function VariantsPage() {
             No variants found. Check console for debug info.
           </div>
         ) : (
-        <div style={{ backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.2)' }}>
+        <div style={{ backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.2)', width: '100%' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderBottom: '2px solid #dee2e6' }}>
@@ -539,6 +541,7 @@ export default function VariantsPage() {
                       <input
                         type="number"
                         step="0.1"
+                        min="0"
                         placeholder="Enter Value"
                         value={multiplier[variant.id] || ""}
                         onChange={(event) => handleChange(variant.id, event.target.value)}
