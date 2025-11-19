@@ -401,7 +401,8 @@ export default function VariantsPage() {
   };
 
   const filteredVariants = variants.filter(variant => 
-    variant.productTitle.toLowerCase().includes(searchTerm.toLowerCase())
+    variant.productTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (variant.sku && variant.sku.toLowerCase().includes(searchTerm.toLowerCase()))
   );
   
   // Pagination logic
@@ -475,7 +476,7 @@ export default function VariantsPage() {
             <label style={{ fontWeight: '500', color: '#000', fontSize: '14px' }}>Search:</label>
             <input
               type="text"
-              placeholder="Search by product name..."
+              placeholder="Search by product name or SKU..."
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               style={{ width: '220px', padding: '12px 16px', border: 'none', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)', fontSize: '14px', background: 'rgba(255,255,255,0.9)' }}
