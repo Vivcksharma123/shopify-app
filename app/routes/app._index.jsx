@@ -90,150 +90,68 @@ export default function Index() {
   const generateProduct = () => fetcher.submit({}, { method: "POST" });
 
   return (
-    <s-page heading="Shopify app template">
-      <s-button slot="primary-action" onClick={generateProduct}>
-        Generate a product
-      </s-button>
-
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
+    <s-page heading="Variation Price Multiplier">
+      <s-section heading="App Description">
         <s-paragraph>
-          This embedded app template uses{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/tools/app-bridge"
-            target="_blank"
-          >
-            App Bridge
-          </s-link>{" "}
-          interface examples like an{" "}
-          <s-link href="/app/additional">additional page in the app nav</s-link>
-          , as well as an{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            Admin GraphQL
-          </s-link>{" "}
-          mutation demo, to provide a starting point for app development.
-        </s-paragraph>
-      </s-section>
-      <s-section heading="Get started with products">
-        <s-paragraph>
-          Generate a product with GraphQL and get the JSON output for that
-          product. Learn more about the{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-            target="_blank"
-          >
-            productCreate
-          </s-link>{" "}
-          mutation in our API references.
-        </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          <s-button
-            onClick={generateProduct}
-            {...(isLoading ? { loading: true } : {})}
-          >
-            Generate a product
-          </s-button>
-          {fetcher.data?.product && (
-            <s-button
-              onClick={() => {
-                shopify.intents.invoke?.("edit:shopify/Product", {
-                  value: fetcher.data?.product?.id,
-                });
-              }}
-              target="_blank"
-              variant="tertiary"
-            >
-              Edit product
-            </s-button>
-          )}
-        </s-stack>
-        {fetcher.data?.product && (
-          <s-section heading="productCreate mutation">
-            <s-stack direction="block" gap="base">
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
-                </pre>
-              </s-box>
-
-              <s-heading>productVariantsBulkUpdate mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
-                </pre>
-              </s-box>
-            </s-stack>
-          </s-section>
-        )}
-      </s-section>
-
-      <s-section slot="aside" heading="App template specs">
-        <s-paragraph>
-          <s-text>Framework: </s-text>
-          <s-link href="https://reactrouter.com/" target="_blank">
-            React Router
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Interface: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/app-home/using-polaris-components"
-            target="_blank"
-          >
-            Polaris web components
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>API: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            GraphQL
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Database: </s-text>
-          <s-link href="https://www.prisma.io/" target="_blank">
-            Prisma
-          </s-link>
+          Variation Price Multiplier is a lightweight Shopify admin-only tool designed for merchants who need to quickly calculate adjusted prices for all product variations using a custom multiplier value.
+          This app is perfect for stores that manage large catalogs and need an efficient way to compute bulk pricing calculations without affecting the storefront.
         </s-paragraph>
       </s-section>
 
-      <s-section slot="aside" heading="Next steps">
+      <s-section heading="Key Features">
+        <s-stack direction="block" gap="base">
         <s-unordered-list>
           <s-list-item>
-            Build an{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/getting-started/build-app-example"
-              target="_blank"
-            >
-              example app
-            </s-link>
+            <s-text weight="bold">View All Product Variants in One Place</s-text>
+            <s-paragraph>
+              Display every variant of a selected product — including SKU, variant title, and base price — in a clean, organized list inside the Shopify admin.
+            </s-paragraph>
           </s-list-item>
           <s-list-item>
-            Explore Shopify&apos;s API with{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-              target="_blank"
-            >
-              GraphiQL
-            </s-link>
+            <s-text weight="bold">Apply a Custom Multiplier</s-text>
+            <s-paragraph>
+              Enter any input value (e.g., 1.2, 1.5, 3, etc.), and the app instantly calculates the updated price for each variant.
+            </s-paragraph>
+          </s-list-item>
+          <s-list-item>
+            <s-text weight="bold">Single "Update All" Button</s-text>
+            <s-paragraph>
+              With one click, update all variant prices using the multiplier. No need to adjust variants one by one.
+            </s-paragraph>
+          </s-list-item>
+          <s-list-item>
+            <s-text weight="bold">Backend-Only Tool</s-text>
+            <s-paragraph>
+              Your calculations and tools never appear on the storefront.
+              Only visible to store admins through your private app interface.
+            </s-paragraph>
+          </s-list-item>
+          <s-list-item>
+            <s-text weight="bold">Lightweight & Fast</s-text>
+            <s-paragraph>
+              Built with Shopify Admin UI Extensions, the app loads quickly and works seamlessly without slowing down your theme.
+            </s-paragraph>
+          </s-list-item>
+          <s-list-item>
+            <s-text weight="bold">Perfect for Stores Using Bulk Pricing Rules</s-text>
+            <s-paragraph>
+              Ideal for merchants who adjust pricing based on:
+            </s-paragraph>
+            <s-box padding="base">
+              <s-stack direction="inline" gap="base">
+              <s-text size="medium">✓ Wholesale multipliers</s-text>
+              <s-text size="medium">✓ Cost + margin formula</s-text>
+              <s-text size="medium">✓ Bulk pricing updates</s-text>
+              <s-text size="medium">✓ Custom markup calculations</s-text>
+              <s-text size="medium">✓ Vendor-specific pricing rules</s-text>
+            </s-stack>
+            </s-box>
           </s-list-item>
         </s-unordered-list>
+        </s-stack>
       </s-section>
+
+
     </s-page>
   );
 }
