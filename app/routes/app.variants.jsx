@@ -127,15 +127,27 @@ export const action = async ({ request }) => {
   if (actionType === "updatePrices") {
     // Handle price updates and save to database
     const newPrices = JSON.parse(formData.get("newPrices") || "{}");
+    const originalPrices = JSON.parse(formData.get("originalPrices") || "{}");
     console.log("💾 Saving calculated prices to database:", newPrices);
+    console.log("💾 Saving original prices to database:", originalPrices);
     
     try {
-      // Save new calculated prices to database (only update currentPrice, keep originalPrice unchanged)
+      // First update all original prices in database
+      for (const [variantId, originalPrice] of Object.entries(originalPrices)) {
+        if (originalPrice) {
+          await prisma.variantPrice.upsert({
+            where: { variantId },
+            update: { originalPrice: parseFloat(originalPrice) },
+            create: { variantId, originalPrice: parseFloat(originalPrice), currentPrice: parseFloat(originalPrice) }
+          });
+          console.log(`💾 Updated original price for variant ${variantId} to ${originalPrice}`);
+        }
+      }
+      
+      // Then update calculated prices
       for (const [variantId, price] of Object.entries(newPrices)) {
         console.log(`💾 Updating current price for variant ${variantId} to ${price}`);
         
-        // Get original price from the originalPrices data sent from frontend
-        const originalPrices = JSON.parse(formData.get("originalPrices") || "{}");
         const originalPrice = originalPrices[variantId];
         
         const result = await prisma.variantPrice.upsert({
@@ -145,7 +157,7 @@ export const action = async ({ request }) => {
         });
         console.log(`✅ Update result:`, result);
       }
-      console.log("✅ All current prices updated in database successfully");
+      console.log("✅ All prices updated in database successfully");
     } catch (dbError) {
       console.error("❌ Database save failed:", dbError);
     }
@@ -344,7 +356,14 @@ export const action = async ({ request }) => {
 export default function VariantsPage() {
   const { variants, originalPricesFromDB, currentPricesFromDB } = useLoaderData();
   const fetcher = useFetcher();
-  const [multiplier, setMultiplier] = useState({});
+  const [multiplier, setMultiplier] = useState(() => {
+    // Load multipliers from localStorage on initial render
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('variantMultipliers');
+      return saved ? JSON.parse(saved) : {};
+    }
+    return {};
+  });
   const [globalMultiplier, setGlobalMultiplier] = useState('');
   const [updatedPrices, setUpdatedPrices] = useState({});
   const [originalPrices, setOriginalPrices] = useState({});
@@ -369,7 +388,17 @@ export default function VariantsPage() {
     // Prevent negative values
     if (value < 0) return;
     console.log('🔄 Multiplier changed:', { id, value });
-    setMultiplier({ ...multiplier, [id]: value });
+    const newMultipliers = { ...multiplier, [id]: value };
+    setMultiplier(newMultipliers);
+    // Save to localStorage
+    localStorage.setItem('variantMultipliers', JSON.stringify(newMultipliers));
+  };
+
+  const handleOriginalPriceChange = (id, value) => {
+    // Prevent negative values
+    if (value < 0) return;
+    console.log('🔄 Original price changed:', { id, value });
+    setOriginalPrices({ ...originalPrices, [id]: parseFloat(value) || 0 });
   };
 
   const applyGlobalMultiplier = () => {
@@ -380,6 +409,8 @@ export default function VariantsPage() {
       newMultipliers[variant.id] = globalMultiplier;
     });
     setMultiplier(newMultipliers);
+    // Save to localStorage
+    localStorage.setItem('variantMultipliers', JSON.stringify(newMultipliers));
     console.log('🌍 Applied global multiplier:', globalMultiplier);
   };
 
@@ -445,17 +476,15 @@ export default function VariantsPage() {
     fetcher.submit(formData, { method: "POST" });
     console.log('📤 Update request submitted to server');
     
-    // Clear multipliers after update
-    setMultiplier({});
-    setGlobalMultiplier('');
-    console.log('🧹 Multipliers cleared');
+    // Keep multipliers after update for user convenience
+    console.log('✅ Update submitted, keeping multiplier values');
   };
   
   // Show success message
   useEffect(() => {
     if (fetcher.data?.success) {
       console.log('✅ Update successful:', fetcher.data.message);
-      // Refresh page to show updated prices
+      // Reload page to show updated prices, multipliers will persist via localStorage
       window.location.reload();
     } else if (fetcher.data?.success === false) {
       console.error('❌ Update failed:', fetcher.data.message);
@@ -537,7 +566,32 @@ export default function VariantsPage() {
                     <td style={{ padding: '16px', fontWeight: '600', color: '#212529' }}>{variant.productTitle}</td>
                     <td style={{ padding: '16px', color: '#495057' }}>{variant.title}</td>
                     <td style={{ padding: '16px', color: '#6c757d', fontFamily: 'monospace' }}>{variant.sku || "—"}</td>
-                    <td style={{ padding: '16px', color: '#495057', fontWeight: '500' }}>${originalPrice.toFixed(2)}</td>
+                    <td style={{ padding: '16px' }}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={originalPrice.toFixed(2)}
+                        onChange={(event) => handleOriginalPriceChange(variant.id, event.target.value)}
+                        style={{ 
+                          width: '80px', 
+                          padding: '8px 12px', 
+                          border: '2px solid #dee2e6',
+                          borderRadius: '10px', 
+                          fontSize: '14px',
+                          transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+                          outline: 'none'
+                        }}
+                        onFocus={(e) => {
+                          e.target.style.borderColor = '#007bff';
+                          e.target.style.boxShadow = '0 0 0 3px rgba(0,123,255,0.1)';
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#dee2e6';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </td>
                     <td style={{ padding: '16px' }}>
                       <input
                         type="number"
